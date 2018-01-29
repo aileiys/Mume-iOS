@@ -3,17 +3,11 @@ source 'https://github.com/CocoaPods/Specs.git'
 platform :ios, '9.0'
 use_frameworks!
 
-def fabric
-    pod 'Fabric'
-    pod 'Crashlytics'
-end
-
 def library
     pod 'KissXML'
     pod 'KissXML/libxml_module'
     pod 'ICSMainFramework', :path => "./Library/ICSMainFramework/"
     pod 'MMWormhole', '~> 2.0.0'
-    pod 'KeychainAccess'
 end
 
 def tunnel
@@ -25,30 +19,27 @@ def socket
 end
 
 def model
-    pod 'RealmSwift'
+    pod 'RealmSwift', '~> 1.1.0'
 end
 
 target "Potatso" do
     pod 'Aspects', :path => "./Library/Aspects/"
-    pod 'Cartography'
-    pod 'AsyncSwift'
-    pod 'SwiftColor', '~> 0.3.7'
+    pod 'Cartography', '~> 0.7'
+    pod 'AsyncSwift', '~> 1.7'
+    pod 'SwiftColor', :git => 'https://github.com/liruqi/SwiftColor.git'
     pod 'Appirater'
-    pod 'Eureka', '~> 1.6.0'
+    pod 'Eureka', :git => 'https://github.com/xmartlabs/Eureka.git', :branch => 'swift2.3'
     pod 'MBProgressHUD'
-    pod 'CallbackURLKit'
-    pod 'ICDMaterialActivityIndicatorView', '~> 0.1.0'
-    pod 'SVPullToRefresh'
+    pod 'CallbackURLKit', '~> 0.2'
+    pod 'SVPullToRefresh', :git => 'https://github.com/samvermette/SVPullToRefresh'
     pod 'ISO8601DateFormatter', '~> 0.8'
-    pod 'Alamofire'
-    pod 'ObjectMapper'
-    pod 'CocoaLumberjack/Swift'
-    pod 'Helpshift', '5.6.1'
+    pod 'Alamofire', '~> 3.5'
+    pod 'ObjectMapper', '~> 1.5.0'
     pod 'PSOperations', '~> 2.3'
-    pod 'LogglyLogger-CocoaLumberjack', '~> 2.0'
+    pod 'Fabric'
+    pod 'Crashlytics'
     tunnel
     library
-    fabric
     socket
     model
 end
@@ -63,8 +54,8 @@ target "PacketProcessor" do
 end
 
 target "TodayWidget" do
-    pod 'Cartography'
-    pod 'SwiftColor'
+    pod 'Cartography', '~> 0.7'
+    pod 'SwiftColor', :git => 'https://github.com/liruqi/SwiftColor.git'
     library
     socket
     model
@@ -79,17 +70,11 @@ target "PotatsoModel" do
     model
 end
 
-target "PotatsoLibraryTests" do
-    library
-end
-
 post_install do |installer|
     installer.pods_project.targets.each do |target|
         target.build_configurations.each do |config|
             config.build_settings['ENABLE_BITCODE'] = 'NO'
-            if target.name == "HelpShift"
-                config.build_settings["OTHER_LDFLAGS"] = '$(inherited) "-ObjC"'
-            end
+            config.build_settings['SWIFT_VERSION'] = '2.3'
         end
     end
 end

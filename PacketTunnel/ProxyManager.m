@@ -12,13 +12,11 @@
 #import "PotatsoBase.h"
 
 @interface ProxyManager ()
-@property (nonatomic) BOOL socksProxyRunning;
+@property (nonatomic, copy) NSString* socksProxyHost;
 @property (nonatomic) int socksProxyPort;
-@property (nonatomic) BOOL httpProxyRunning;
 @property (nonatomic) int httpProxyPort;
 @property (nonatomic) BOOL shadowsocksProxyRunning;
-@property (nonatomic) int shadowsocksProxyPort;
-@property (nonatomic, copy) SocksProxyCompletion socksCompletion;
+@property (nonatomic, copy) NSString* proxyType;
 @property (nonatomic, copy) HttpProxyCompletion httpCompletion;
 @property (nonatomic, copy) ShadowsocksProxyCompletion shadowsocksCompletion;
 - (void)onSocksProxyCallback: (int)fd;
@@ -59,31 +57,31 @@ int sock_port (int fd) {
     return manager;
 }
 
-- (void)startSocksProxy:(SocksProxyCompletion)completion {
-    self.socksCompletion = [completion copy];
-    NSString *confContent = [NSString stringWithContentsOfURL:[Potatso sharedSocksConfUrl] encoding:NSUTF8StringEncoding error:nil];
-    confContent = [confContent stringByReplacingOccurrencesOfString:@"${ssport}" withString:[NSString stringWithFormat:@"%d", [self shadowsocksProxyPort]]];
-    int fd = [[AntinatServer sharedServer] startWithConfig:confContent];
-    [self onSocksProxyCallback:fd];
-}
-
-- (void)stopSocksProxy {
-    [[AntinatServer sharedServer] stop];
-    self.socksProxyRunning = NO;
-}
-
-- (void)onSocksProxyCallback:(int)fd {
-    NSError *error;
-    if (fd > 0) {
-        self.socksProxyPort = sock_port(fd);
-        self.socksProxyRunning = YES;
-    }else {
-        error = [NSError errorWithDomain:@"com.touchingapp.potatso" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start socks proxy"}];
-    }
-    if (self.socksCompletion) {
-        self.socksCompletion(self.socksProxyPort, error);
-    }
-}
+//- (void)startSocksProxy:(SocksProxyCompletion)completion {
+//    self.socksCompletion = [completion copy];
+//    NSString *confContent = [NSString stringWithContentsOfURL:[Potatso sharedSocksConfUrl] encoding:NSUTF8StringEncoding error:nil];
+//    confContent = [confContent stringByReplacingOccurrencesOfString:@"${ssport}" withString:[NSString stringWithFormat:@"%d", [self shadowsocksProxyPort]]];
+//    int fd = [[AntinatServer sharedServer] startWithConfig:confContent];
+//    [self onSocksProxyCallback:fd];
+//}
+//
+//- (void)stopSocksProxy {
+//    [[AntinatServer sharedServer] stop];
+//    self.socksProxyRunning = NO;
+//}
+//
+//- (void)onSocksProxyCallback:(int)fd {
+//    NSError *error;
+//    if (fd > 0) {
+//        self.socksProxyPort = sock_port(fd);
+//        self.socksProxyRunning = YES;
+//    }else {
+//        error = [NSError errorWithDomain:@"info.liruqi.mume" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start socks proxy"}];
+//    }
+//    if (self.socksCompletion) {
+//        self.socksCompletion(self.socksProxyPort, error);
+//    }
+//}
 
 # pragma mark - Shadowsocks 
 
@@ -95,14 +93,23 @@ int sock_port (int fd) {
 - (void)_startShadowsocks {
     NSString *confContent = [NSString stringWithContentsOfURL:[Potatso sharedProxyConfUrl] encoding:NSUTF8StringEncoding error:nil];
     NSDictionary *json = [confContent jsonDictionary];
+    self.proxyType = json[@"type"];
     NSString *host = json[@"host"];
     NSNumber *port = json[@"port"];
+    if ([self.proxyType isEqualToString: @"SOCKS5"]) {
+        self.socksProxyPort = port.intValue;
+        self.socksProxyHost = host;
+        self.shadowsocksCompletion(self.socksProxyPort, nil);
+        return;
+    }
     NSString *password = json[@"password"];
     NSString *authscheme = json[@"authscheme"];
     NSString *protocol = json[@"protocol"];
     NSString *obfs = json[@"obfs"];
     NSString *obfs_param = json[@"obfs_param"];
     BOOL ota = [json[@"ota"] boolValue];
+    NSURL* rootUrl = [Potatso sharedUrl];
+    NSURL* logPath = [rootUrl URLByAppendingPathComponent:shadowsocksLogFile];
     if (host && port && password && authscheme) {
         profile_t profile;
         memset(&profile, 0, sizeof(profile_t));
@@ -114,6 +121,7 @@ int sock_port (int fd) {
         profile.local_port = 0;
         profile.timeout = 600;
         profile.auth = ota;
+        profile.log = strdup([logPath.path UTF8String]);
         if (protocol.length > 0) {
             profile.protocol = strdup([protocol UTF8String]);
         }
@@ -139,13 +147,13 @@ int sock_port (int fd) {
 - (void)onShadowsocksCallback:(int)fd {
     NSError *error;
     if (fd > 0) {
-        self.shadowsocksProxyPort = sock_port(fd);
+        self.socksProxyPort = sock_port(fd);
         self.shadowsocksProxyRunning = YES;
     }else {
-        error = [NSError errorWithDomain:@"com.touchingapp.potatso" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start http proxy"}];
+        error = [NSError errorWithDomain:@"info.liruqi.mume" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start http proxy"}];
     }
     if (self.shadowsocksCompletion) {
-        self.shadowsocksCompletion(self.shadowsocksProxyPort, error);
+        self.shadowsocksCompletion(self.socksProxyPort, error);
     }
 }
 
@@ -158,31 +166,42 @@ int sock_port (int fd) {
 
 - (void)_startHttpProxy: (NSURL *)confURL {
     struct forward_spec *proxy = NULL;
-    if (self.shadowsocksProxyPort > 0) {
+    if (self.socksProxyPort > 0) {
         proxy = (malloc(sizeof(struct forward_spec)));
         memset(proxy, 0, sizeof(struct forward_spec));
         proxy->type = SOCKS_5;
-        proxy->gateway_host = "127.0.0.1";
-        proxy->gateway_port = self.shadowsocksProxyPort;
+        if ([self.proxyType isEqualToString: @"SOCKS5"]) {
+            proxy->gateway_host = self.socksProxyHost.cString;
+            proxy->gateway_port = self.socksProxyPort;
+        } else {
+            proxy->gateway_host = "127.0.0.1";
+            proxy->gateway_port = self.socksProxyPort;
+        }
     }
     shadowpath_main(strdup([[confURL path] UTF8String]), proxy, http_proxy_handler, (__bridge void *)self);
 }
 
 - (void)stopHttpProxy {
 //    polipoExit();
-//    self.httpProxyRunning = NO;
 }
 
 - (void)onHttpProxyCallback:(int)fd {
     NSError *error;
     if (fd > 0) {
         self.httpProxyPort = sock_port(fd);
-        self.httpProxyRunning = YES;
     }else {
-        error = [NSError errorWithDomain:@"com.touchingapp.potatso" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start http proxy"}];
+        error = [NSError errorWithDomain:@"info.liruqi.mume" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Fail to start http proxy"}];
     }
     if (self.httpCompletion) {
         self.httpCompletion(self.httpProxyPort, error);
+    }
+}
+
+- (NSString *)socksProxy {
+    if ([self.proxyType isEqualToString: @"SOCKS5"]) {
+        return [NSString stringWithFormat:@"%@:%d", self.socksProxyHost, self.socksProxyPort];
+    } else {
+        return [NSString stringWithFormat:@"127.0.0.1:%d", self.socksProxyPort];
     }
 }
 

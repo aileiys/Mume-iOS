@@ -9,6 +9,8 @@
 #import <Foundation/Foundation.h>
 
 extern NSString * _Nonnull sharedGroupIdentifier;
+extern NSString * _Nonnull shadowsocksLogFile;
+extern NSString * _Nonnull privoxyLogFile;
 
 @interface Potatso : NSObject
 + (NSURL * _Nonnull)sharedUrl;
@@ -16,7 +18,6 @@ extern NSString * _Nonnull sharedGroupIdentifier;
 + (NSUserDefaults * _Nonnull)sharedUserDefaults;
 
 + (NSURL * _Nonnull)sharedGeneralConfUrl;
-+ (NSURL * _Nonnull)sharedSocksConfUrl;
 + (NSURL * _Nonnull)sharedProxyConfUrl;
 + (NSURL * _Nonnull)sharedHttpProxyConfUrl;
 + (NSURL * _Nonnull)sharedLogUrl;

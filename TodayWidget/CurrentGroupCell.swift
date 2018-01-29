@@ -10,29 +10,27 @@ import UIKit
 import Cartography
 import PotatsoLibrary
 
-class CurrentGroupCell: UITableViewCell {
+class CurrentGroupCell: UIView {
     
-    var switchVPN: (()->Void)?
+    var switchVPN: ((on: Bool)->Void)?
     
-    override init(style: UITableViewCellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(switchButton)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        self.addSubview(nameLabel)
+        self.addSubview(switchButton)
         setupLayout()
     }
     
-    func onSwitchValueChanged() {
-        switchVPN?()
+    func onSwitchValueChanged(sender: UISwitch) {
+        switchButton.hidden = true
+        switchVPN?(on: sender.on)
     }
     
-    func config(name: String?, status: Bool, switchVPN: (() -> Void)?) {
+    func config(name: String?, status: Bool, switchVPN: ((on: Bool) -> Void)?) {
         nameLabel.text = name ?? "None".localized()
-        switchButton.setBackgroundImage("FF6959".color.alpha(0.76).toImage(), forState: .Normal)
-        
+        switchButton.hidden = false
         switchButton.addTarget(self, action: #selector(self.onSwitchValueChanged), forControlEvents: .TouchUpInside)
-        switchButton.setTitle((status ? "Disconnect" : "Connect").localized(), forState: .Normal)
-        switchButton.setBackgroundImage((status ? "FF6959" : "1ABC9C").color.alpha(0.76).toImage(), forState: .Normal)
-        
+        switchButton.setOn(status, animated: false)
         self.switchVPN = switchVPN
     }
     
@@ -41,15 +39,14 @@ class CurrentGroupCell: UITableViewCell {
     }
     
     func setupLayout() {
-        constrain(nameLabel, switchButton, contentView) { nameLabel, switchButton, superView in
-            nameLabel.leading == superView.leading
+        constrain(nameLabel, switchButton, self) { nameLabel, switchButton, superView in
+            nameLabel.leading == superView.leading + 15
             nameLabel.centerY == superView.centerY
             nameLabel.trailing == switchButton.leading - 15
             
             switchButton.centerY == superView.centerY
-            switchButton.trailing == superView.trailing - 10
-            switchButton.width == 70
-            switchButton.height == 27
+            switchButton.trailing == superView.trailing - 8
+            switchButton.width == 60
         }
     }
     
@@ -60,12 +57,8 @@ class CurrentGroupCell: UITableViewCell {
         return v
     }()
     
-    lazy var switchButton: UIButton = {
-        let v = UIButton(type: .Custom)
-        v.titleLabel?.font = UIFont.systemFontOfSize(11)
-        v.layer.cornerRadius = 4
-        v.layer.masksToBounds = true
-        v.clipsToBounds = true
+    lazy var switchButton: UISwitch = {
+        let v = UISwitch()
         return v
     }()
 

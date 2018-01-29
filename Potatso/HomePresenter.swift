@@ -9,11 +9,13 @@
 import Foundation
 
 protocol HomePresenterProtocol: class {
-    func handleRefreshUI()
+    func handleRefreshUI(error: ErrorType?)
 }
 
 class HomePresenter: NSObject {
 
+    static var kAddConfigGroup = "AddConfigGroup"
+    
     var vc: UIViewController!
 
     var group: ConfigurationGroup {
@@ -29,8 +31,9 @@ class HomePresenter: NSObject {
     override init() {
         super.init()
         NSNotificationCenter.defaultCenter().addObserver(self, selector: #selector(onVPNStatusChanged), name: kProxyServiceVPNStatusNotification, object: nil)
+        NSNotificationCenter.defaultCenter().addObserver(self, selector: #selector(showAddConfigGroup), name: HomePresenter.kAddConfigGroup, object: nil)
         CurrentGroupManager.shared.onChange = { group in
-            self.delegate?.handleRefreshUI()
+            self.delegate?.handleRefreshUI(nil)
         }
     }
 
@@ -48,20 +51,9 @@ class HomePresenter: NSObject {
         VPN.switchVPN(group) { [unowned self] (error) in
             if let error = error {
                 Alert.show(self.vc, message: "\("Fail to switch VPN.".localized()) (\(error))")
+                self.delegate?.handleRefreshUI(error)
             }
         }
-    }
-
-    func chooseProxy() {
-        let chooseVC = ProxyListViewController(allowNone: true) { [unowned self] proxy in
-            do {
-                try ConfigurationGroup.changeProxy(forGroupId: self.group.uuid, proxyId: proxy?.uuid)
-                self.delegate?.handleRefreshUI()
-            }catch {
-                self.vc.showTextHUD("\("Fail to change proxy".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
-            }
-        }
-        vc.navigationController?.pushViewController(chooseVC, animated: true)
     }
 
     func chooseConfigGroups() {
@@ -119,7 +111,7 @@ class HomePresenter: NSObject {
         }
         do {
             try ConfigurationGroup.appendRuleSet(forGroupId: group.uuid, rulesetId: ruleSet.uuid)
-            self.delegate?.handleRefreshUI()
+            self.delegate?.handleRefreshUI(nil)
         }catch {
             self.vc.showTextHUD("\("Fail to add ruleset".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
         }
@@ -151,7 +143,7 @@ class HomePresenter: NSObject {
     }
 
     func onVPNStatusChanged() {
-        self.delegate?.handleRefreshUI()
+        self.delegate?.handleRefreshUI(nil)
     }
 
     func changeGroupName() {
@@ -168,7 +160,7 @@ class HomePresenter: NSObject {
                 }catch {
                     Alert.show(self.vc, title: "Failed to change name", message: "\(error)")
                 }
-                self.delegate?.handleRefreshUI()
+                self.delegate?.handleRefreshUI(nil)
             }
         }))
         alert.addAction(UIAlertAction(title: "CANCEL".localized(), style: .Cancel, handler: nil))
@@ -194,7 +186,7 @@ class CurrentGroupManager {
     }
 
     var group: ConfigurationGroup {
-        if let group = DBUtils.get(_groupUUID, type: ConfigurationGroup.self, filter: "deleted = false") {
+        if let group = DBUtils.get(_groupUUID, type: ConfigurationGroup.self) {
             return group
         } else {
             let defaultGroup = Manager.sharedManager.defaultConfigGroup
@@ -204,7 +196,7 @@ class CurrentGroupManager {
     }
 
     func setConfigGroupId(id: String) {
-        if let _ = DBUtils.get(id, type: ConfigurationGroup.self, filter: "deleted = false") {
+        if let _ = DBUtils.get(id, type: ConfigurationGroup.self) {
             _groupUUID = id
         } else {
             _groupUUID = Manager.sharedManager.defaultConfigGroup.uuid

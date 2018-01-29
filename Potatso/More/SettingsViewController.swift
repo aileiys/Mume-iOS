@@ -112,15 +112,16 @@ class SettingsViewController: FormViewController, MFMailComposeViewControllerDel
                     cell.selectionStyle = .Default
                 }).onCellSelection({ [unowned self](cell, row) -> () in
                     cell.setSelected(false, animated: true)
-                    self.navigationController?.pushViewController(LogDetailViewController(), animated: true)
+                    self.navigationController?.pushViewController(DashboardVC(), animated: true)
                     })
-            /*
             <<< ActionRow() {
                 $0.title = "Follow on Twitter".localized()
-                $0.value = "@PotatsoApp"
+                $0.value = "@mumevpn"
             }.onCellSelection({ [unowned self] (cell, row) -> () in
                 self.followTwitter()
             })
+            /*
+
             <<< ActionRow() {
                 $0.title = "Follow on Weibo".localized()
                 $0.value = "@Potatso"
@@ -130,7 +131,7 @@ class SettingsViewController: FormViewController, MFMailComposeViewControllerDel
              */
             <<< ActionRow() {
                 $0.title = "Join Telegram Group".localized()
-                $0.value = "@Mume"
+                $0.value = "telegram.me/mumevpn"
             }.onCellSelection({ [unowned self] (cell, row) -> () in
                 self.joinTelegramGroup()
             })
@@ -142,18 +143,14 @@ class SettingsViewController: FormViewController, MFMailComposeViewControllerDel
     }
 
     func showUserManual() {
-        let url = "http://vpn.liruqi.info/ios/"
+        let url = "http://mumevpn.com/ios/"
         let vc = BaseSafariViewController(URL: NSURL(string: url)!, entersReaderIfAvailable: false)
         vc.delegate = self
         presentViewController(vc, animated: true, completion: nil)
     }
 
     func followTwitter() {
-        UIApplication.sharedApplication().openURL(NSURL(string: "https://twitter.com/intent/user?screen_name=potatsoapp")!)
-    }
-
-    func followWeibo() {
-        UIApplication.sharedApplication().openURL(NSURL(string: "http://weibo.com/potatso")!)
+        UIApplication.sharedApplication().openURL(NSURL(string: "https://twitter.com/intent/user?screen_name=mumevpn")!)
     }
 
     func joinTelegramGroup() {
@@ -161,8 +158,8 @@ class SettingsViewController: FormViewController, MFMailComposeViewControllerDel
     }
 
     func shareWithFriends() {
-        var shareItems: [AnyObject] = []
-        shareItems.append("Mume VPN: https://itunes.apple.com/us/app/id1144787928")
+        var shareItems: [AnyObject] = [self]
+        shareItems.append("Mume: https://itunes.apple.com/app/id1144787928")
         shareItems.append(UIImage(named: "AppIcon60x60")!)
         let shareVC = UIActivityViewController(activityItems: shareItems, applicationActivities: nil)
         self.presentViewController(shareVC, animated: true, completion: nil)
@@ -172,4 +169,23 @@ class SettingsViewController: FormViewController, MFMailComposeViewControllerDel
         controller.dismissViewControllerAnimated(true, completion: nil)
     }
     
+// UIActivityItemSource
+    @objc func activityViewControllerPlaceholderItem(activityViewController: UIActivityViewController) -> AnyObject {
+        return ""
+    }
+    
+    @objc func activityViewController(activityViewController: UIActivityViewController, itemForActivityType activityType: String) -> AnyObject? {
+        if activityType.containsString("com.tencent") {
+            return "Mume iOS: https://liruqi.github.io/Mume-iOS/"
+        }
+        return "Mume: https://itunes.apple.com/app/id1144787928"
+    }
+    
+    func activityViewController(activityViewController: UIActivityViewController, subjectForActivityType activityType: String?) -> String {
+        return "Mume"
+    }
+    
+    func activityViewController(activityViewController: UIActivityViewController, thumbnailImageForActivityType activityType: String!, suggestedSize size: CGSize) -> UIImage! {
+        return UIImage(named: "AppIcon60x60")
+    }
 }

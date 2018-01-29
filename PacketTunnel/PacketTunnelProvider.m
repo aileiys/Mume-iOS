@@ -63,6 +63,7 @@
         [weakSelf.wormhole passMessageObject:@"ok" identifier:@"tunnelStatus"];
     }];
     [self.wormhole listenForMessageWithIdentifier:@"stopTunnel" listener:^(id  _Nullable messageObject) {
+        NSLog(@"received message: stopTunnel");
         [weakSelf stop];
     }];
     [self.wormhole listenForMessageWithIdentifier:@"getTunnelConnectionRecords" listener:^(id  _Nullable messageObject) {
@@ -115,7 +116,7 @@
 - (void)startProxies {
     [self startShadowsocks];
     [self startHttpProxy];
-    [self startSocksProxy];
+//    [self startSocksProxy];
 }
 
 - (void)syncStartProxy: (NSString *)name completion: (void(^)(dispatch_group_t g, NSError **proxyError))handler {
@@ -137,6 +138,7 @@
 - (void)startShadowsocks {
     [self syncStartProxy: @"shadowsocks" completion:^(dispatch_group_t g, NSError *__autoreleasing *proxyError) {
         [[ProxyManager sharedManager] startShadowsocks:^(int port, NSError *error) {
+            NSLog(@"startShadowsocks - port: %d error:%@", port, error);
             *proxyError = error;
             dispatch_group_leave(g);
         }];
@@ -152,14 +154,14 @@
     }];
 }
 
-- (void)startSocksProxy {
-    [self syncStartProxy: @"socks" completion:^(dispatch_group_t g, NSError *__autoreleasing *proxyError) {
-        [[ProxyManager sharedManager] startSocksProxy:^(int port, NSError *error) {
-            *proxyError = error;
-            dispatch_group_leave(g);
-        }];
-    }];
-}
+//- (void)startSocksProxy {
+//    [self syncStartProxy: @"socks" completion:^(dispatch_group_t g, NSError *__autoreleasing *proxyError) {
+//        [[ProxyManager sharedManager] startSocksProxy:^(int port, NSError *error) {
+//            *proxyError = error;
+//            dispatch_group_leave(g);
+//        }];
+//    }];
+//}
 
 - (void)startPacketForwarders {
     __weak typeof(self) weakSelf = self;
@@ -167,7 +169,7 @@
     [self startVPNWithOptions:nil completionHandler:^(NSError *error) {
         if (error == nil) {
             [weakSelf addObserver:weakSelf forKeyPath:@"defaultPath" options:NSKeyValueObservingOptionInitial context:nil];
-            [TunnelInterface startTun2Socks:[ProxyManager sharedManager].socksProxyPort];
+            [TunnelInterface startTun2Socks:[ProxyManager sharedManager].socksProxy];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [TunnelInterface processPackets];
             });
@@ -205,6 +207,7 @@
     proxySettings.HTTPSEnabled = YES;
     proxySettings.HTTPSServer = [[NEProxyServer alloc] initWithAddress:proxyServerName port:proxyServerPort];
     proxySettings.excludeSimpleHostnames = YES;
+    proxySettings.exceptionList = @[@"mumevpn.com", @"crashlytics.com", @"liruqi.info"];
     settings.proxySettings = proxySettings;
     NEDNSSettings *dnsSettings = [[NEDNSSettings alloc] initWithServers:dnsServers];
     dnsSettings.matchDomains = @[@""];
@@ -225,8 +228,10 @@
 - (void)openLog {
     NSString *logFilePath = [Potatso sharedLogUrl].path;
     [[NSFileManager defaultManager] createFileAtPath:logFilePath contents:nil attributes:nil];
-    freopen([logFilePath cStringUsingEncoding:NSASCIIStringEncoding], "w+", stdout);
     freopen([logFilePath cStringUsingEncoding:NSASCIIStringEncoding], "w+", stderr);
+    logFilePath = [logFilePath stringByAppendingString: @".stdout"];
+    [[NSFileManager defaultManager] createFileAtPath:logFilePath contents:nil attributes:nil];
+    freopen([logFilePath cStringUsingEncoding:NSASCIIStringEncoding], "w+", stdout);
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context {
@@ -259,7 +264,6 @@
     [[Potatso sharedUserDefaults] setObject:@(0) forKey:@"tunnelStatusPort"];
     [[Potatso sharedUserDefaults] synchronize];
     [[ProxyManager sharedManager] stopHttpProxy];
-    [[ProxyManager sharedManager] stopSocksProxy];
     [TunnelInterface stop];
 }
 

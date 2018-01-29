@@ -10,7 +10,6 @@ import Foundation
 import PotatsoLibrary
 import PotatsoModel
 import Eureka
-import ICDMaterialActivityIndicatorView
 import Cartography
 
 private let kFormName = "name"
@@ -21,8 +20,7 @@ private let kFormDefaultToProxy = "defaultToProxy"
 class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterProtocol, UITextFieldDelegate {
 
     let presenter = HomePresenter()
-    var proxies: [Proxy?] = []
-    let allowNone: Bool = true
+    var proxies: [Proxy] = []
 
     var ruleSetSection: Section!
 
@@ -33,7 +31,8 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
     }
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: NSBundle?) {
-        self.status = .Off
+        self.status = Manager.sharedManager.vpnStatus
+        print ("HomeVC.init: ", self.status.rawValue)
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
         presenter.bindToVC(self)
         presenter.delegate = self
@@ -54,9 +53,10 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
         self.navigationItem.titleView = titleButton
         // Post an empty message so we could attach to packet tunnel process
         Manager.sharedManager.postMessage()
-        handleRefreshUI()
+//        handleRefreshUI(nil)
+        updateForm()
         navigationItem.leftBarButtonItem = UIBarButtonItem(image: "List".templateImage, style: .Plain, target: presenter, action: #selector(HomePresenter.chooseConfigGroups))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .Add, target: presenter, action: #selector(HomePresenter.showAddConfigGroup))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .Add, target: self, action: #selector(addProxy(_:)))
         startTimer()
     }
     
@@ -65,16 +65,51 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
         stopTimer()
     }
     
+    func addProxy(sender: AnyObject) {
+        let alert = UIAlertController(title: "Add Proxy".localized(), message: nil, preferredStyle: .ActionSheet)
+        alert.addAction(UIAlertAction(title: "Import From QRCode".localized(), style: .Default, handler: { (action) in
+            let importer = Importer(vc: self)
+            importer.importConfigFromQRCode()
+        }))
+        alert.addAction(UIAlertAction(title: "Manual Settings".localized(), style: .Default, handler: { (action) in
+            let vc = ProxyConfigurationViewController()
+            self.navigationController?.pushViewController(vc, animated: true)
+        }))
+        alert.addAction(UIAlertAction(title: "CANCEL".localized(), style: .Cancel, handler: nil))
+        if let presenter = alert.popoverPresentationController {
+            if let rightBtn : View = navigationItem.rightBarButtonItem?.valueForKey("view") as? View {
+                presenter.sourceView = rightBtn
+                presenter.sourceRect = rightBtn.bounds
+            } else {
+                presenter.sourceView = titleButton
+                presenter.sourceRect = titleButton.bounds
+            }
+        }
+        self.presentViewController(alert, animated: true, completion: nil)
+    }
+    
     // MARK: - HomePresenter Protocol
 
-    func handleRefreshUI() {
+    func handleRefreshUI(error: ErrorType?) {
         if presenter.group.isDefault {
-            status = Manager.sharedManager.vpnStatus
-        }else {
+            let vpnStatus = Manager.sharedManager.vpnStatus
+            if status == .Connecting {
+                if nil == error {
+                    if vpnStatus == .Off {
+                        return
+                    }
+                }
+            }
+            if status == .Disconnecting {
+                if vpnStatus == .On {
+                    return
+                }
+            }
+            status = vpnStatus
+        } else {
             status = .Off
         }
         updateTitle()
-        updateForm()
     }
 
     func updateTitle() {
@@ -86,20 +121,36 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
         form.delegate = nil
         form.removeAll()
 
-        proxies = DBUtils.allNotDeleted(Proxy.self, sorted: "createAt").map({ $0 })
-        if allowNone {
-            proxies.insert(nil, atIndex: 0)
-        }
+        
         form.delegate = nil
         form.removeAll()
+        
+        form +++ generateProxySection()
+
         let section = Section("Proxy".localized())
-        for proxy in proxies {
+        proxies = DBUtils.allNotDeleted(Proxy.self, sorted: "createAt").map({ $0 })
+        if proxies.count == 0 {
             section
-                <<< ProxyRow () {
-                    $0.value = proxy
+                <<< ProxyRow() {
+                    $0.value = nil
+                    $0.cellStyle = UITableViewCellStyle.Subtitle
                     }.cellSetup({ (cell, row) -> () in
                         cell.selectionStyle = .None
-                        if (self.presenter.proxy?.uuid == proxy?.uuid) {
+                        cell.accessoryType = .Checkmark
+                    })
+        } else {
+            if nil == self.presenter.proxy {
+                try? ConfigurationGroup.changeProxy(forGroupId: self.presenter.group.uuid, proxyId: proxies[0].uuid)
+            }
+        
+        for proxy in proxies {
+            section
+                <<< ProxyRow() {
+                    $0.value = proxy
+                    $0.cellStyle = UITableViewCellStyle.Subtitle
+                    }.cellSetup({ (cell, row) -> () in
+                        cell.selectionStyle = .None
+                        if (self.presenter.proxy?.uuid == proxy.uuid) {
                             cell.accessoryType = .Checkmark
                         } else {
                             cell.accessoryType = .None
@@ -108,54 +159,49 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
                         let proxy = row.value
                         do {
                             try ConfigurationGroup.changeProxy(forGroupId: self.presenter.group.uuid, proxyId: proxy?.uuid)
-                            self.handleRefreshUI()
+                            self.updateTitle()
+                            self.updateForm()
                             //TODO: reconnect here
                         }catch {
                             self.showTextHUD("\("Fail to change proxy".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
                         }
                         })
         }
+            }
         form +++ section
         
-        form +++ generateProxySection()
         form +++ generateRuleSetSection()
         form.delegate = self
         tableView?.reloadData()
     }
 
     func updateConnectButton() {
-        connectButton.enabled = [VPNStatus.On, VPNStatus.Off].contains(status)
-        connectButton.setTitleColor(UIColor.whiteColor(), forState: .Normal)
-        switch status {
-        case .Connecting, .Disconnecting:
-            connectButton.animating = true
-        default:
-            connectButton.setTitle(status.hintDescription, forState: .Normal)
-            connectButton.animating = false
-        }
-        connectButton.backgroundColor = status.color
+        tableView?.reloadRowsAtIndexPaths([NSIndexPath(forRow: 0, inSection: 0)], withRowAnimation: .None)
     }
 
     // MARK: - Form
 
     func generateProxySection() -> Section {
         let proxySection = Section("Connect".localized())
+        var reloading = true
 
-        proxySection <<< SwitchRow(kFormDefaultToProxy) {
-            $0.title = "Default To Proxy".localized()
-            $0.value = presenter.group.defaultToProxy
-            $0.hidden = Condition.Function([kFormProxies]) { [unowned self] form in
-                return self.presenter.proxy == nil
-            }
-        }.onChange({ [unowned self] (row) in
-            do {
-                try defaultRealm.write {
-                    self.presenter.group.defaultToProxy = row.value ?? true
+        proxySection <<< SwitchRow("connection") {
+            reloading = true
+            $0.title = status.hintDescription
+            $0.value = status.onOrConnectiong
+            reloading = false
+            }.onChange({ [unowned self] (row) in
+                if reloading {
+                    return
                 }
-            }catch {
-                self.showTextHUD("\("Fail to modify default to proxy".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
-            }
-        })
+                self.handleConnectButtonPressed()
+                })
+            .cellUpdate ({ cell, row in
+                reloading = true
+                row.title = self.status.hintDescription
+                row.value = self.status.onOrConnectiong
+                reloading = false
+            })
         <<< TextRow(kFormDNS) {
             $0.title = "DNS".localized()
             $0.value = presenter.group.dns
@@ -176,7 +222,7 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
                     var count = 0
                     if ruleSet.ruleCount > 0 {
                         count = ruleSet.ruleCount
-                    }else {
+                    } else {
                         count = ruleSet.rules.count
                     }
                     if count > 1 {
@@ -188,6 +234,21 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
                     cell.selectionStyle = .None
                 })
         }
+        ruleSetSection <<< SwitchRow(kFormDefaultToProxy) {
+            $0.title = "Default To Proxy".localized()
+            $0.value = presenter.group.defaultToProxy
+            $0.hidden = Condition.Function([kFormProxies]) { [unowned self] form in
+                return self.presenter.proxy == nil
+            }
+            }.onChange({ [unowned self] (row) in
+                do {
+                    try defaultRealm.write {
+                        self.presenter.group.defaultToProxy = row.value ?? true
+                    }
+                }catch {
+                    self.showTextHUD("\("Fail to modify default to proxy".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
+                }
+                })
         ruleSetSection <<< BaseButtonRow () {
             $0.title = "Add Rule Set".localized()
         }.onCellSelection({ [unowned self] (cell, row) -> () in
@@ -242,7 +303,10 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
     // MARK: - TextRow
 
     override func textInputDidEndEditing<T>(textInput: UITextInput, cell: Cell<T>) {
-        guard let textField = textInput as? UITextField, dnsString = textField.text where cell.row.tag == kFormDNS else {
+        guard let textField = textInput as? UITextField else {
+            return
+        }
+        guard let dnsString = textField.text where cell.row.tag == kFormDNS else {
             return
         }
         presenter.updateDNS(dnsString)
@@ -256,30 +320,7 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
     override func loadView() {
         super.loadView()
         view.backgroundColor = Color.Background
-        view.addSubview(connectButton)
-        setupLayout()
     }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        view.bringSubviewToFront(connectButton)
-        tableView?.contentInset = UIEdgeInsetsMake(0, 0, connectButtonHeight, 0)
-    }
-
-    func setupLayout() {
-        constrain(connectButton, view) { connectButton, view in
-            connectButton.trailing == view.trailing
-            connectButton.leading == view.leading
-            connectButton.height == connectButtonHeight
-            connectButton.bottom == view.bottom
-        }
-    }
-
-    lazy var connectButton: FlatButton = {
-        let v = FlatButton(frame: CGRect.zero)
-        v.addTarget(self, action: #selector(HomeVC.handleConnectButtonPressed), forControlEvents: .TouchUpInside)
-        return v
-    }()
 
     lazy var titleButton: UIButton = {
         let b = UIButton(type: .Custom)
@@ -294,7 +335,7 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
     var timer: NSTimer?
     
     func startTimer() {
-        timer = NSTimer.scheduledTimerWithTimeInterval(1, target: self, selector: #selector(DashboardVC.onTime), userInfo: nil, repeats: true)
+        timer = NSTimer.scheduledTimerWithTimeInterval(1, target: self, selector: #selector(onTime), userInfo: nil, repeats: true)
         timer?.fire()
     }
     
@@ -304,7 +345,7 @@ class HomeVC: FormViewController, UINavigationControllerDelegate, HomePresenterP
     }
     
     func onTime() {
-        connectButton.setTitle(status.hintDescription, forState: .Normal)
+        updateConnectButton()
     }
 }
 
@@ -319,20 +360,32 @@ extension VPNStatus {
         }
     }
 
+    var onOrConnectiong: Bool {
+        switch self {
+        case .On, .Connecting:
+            return true
+        case .Off, .Disconnecting:
+            return false
+        }
+    }
+    
     var hintDescription: String {
         switch self {
-        case .On, .Disconnecting:
+        case .On:
             if let time = Settings.shared().startTime {
                 let flags = NSCalendarUnit(rawValue: UInt.max)
                 let difference = NSCalendar.currentCalendar().components(flags, fromDate: time, toDate: NSDate(), options: NSCalendarOptions.MatchFirst)
                 let f = NSDateComponentsFormatter()
                 f.unitsStyle = .Abbreviated
-                return f.stringFromDateComponents(difference)! + " - " + "Disconnect".localized()
+                return  "Connected".localized() + " - " + f.stringFromDateComponents(difference)!
             }
-            return "Disconnect".localized()
-            
-        case .Off, .Connecting:
-            return "Connect".localized()
+            return "Connected".localized()
+        case .Disconnecting:
+            return "Disconnecting...".localized()
+        case .Off:
+            return "Off".localized()
+        case .Connecting:
+            return "Connecting...".localized()
         }
     }
 }

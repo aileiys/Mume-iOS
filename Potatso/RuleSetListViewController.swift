@@ -16,13 +16,12 @@ private let rowHeight: CGFloat = 54
 private let kRuleSetCellIdentifier = "ruleset"
 
 class RuleSetListViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
-
     var ruleSets: Results<RuleSet>
     var chooseCallback: (RuleSet? -> Void)?
     // Observe Realm Notifications
-    var token: RLMNotificationToken?
     var heightAtIndex: [Int: CGFloat] = [:]
-
+    private let pageSize = 20
+    
     init(chooseCallback: (RuleSet? -> Void)? = nil) {
         self.chooseCallback = chooseCallback
         self.ruleSets = DBUtils.allNotDeleted(RuleSet.self, sorted: "createAt")
@@ -32,33 +31,43 @@ class RuleSetListViewController: UIViewController, UITableViewDataSource, UITabl
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
+    
+    func loadData() {
+        API.getRuleSets() { (response) in
+            self.tableView.pullToRefreshView?.stopAnimating()
+            if response.result.isFailure {
+                // Fail
+//                let errDesc = response.result.error?.localizedDescription ?? ""
+                // self.showTextHUD((errDesc.characters.count > 0 ? "\(errDesc)" : "Unkown error".localized()), dismissAfterDelay: 1.5)
+            } else {
+                guard let result = response.result.value else {
+                    return
+                }
+                let data = result.filter({ $0.name.characters.count > 0})
+                for i in 0..<data.count {
+                    do {
+                        try RuleSet.addRemoteObject(data[i])
+                    } catch {
+                        NSLog("Fail to subscribe".localized())
+                    }
+                }
+                self.reloadData()
+            }
+        }
+    }
+    
     override func viewWillAppear(animated: Bool) {
         super.viewWillAppear(animated)
         navigationItem.title = "Rule Set".localized()
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .Add, target: self, action: #selector(add))
         reloadData()
-        token = ruleSets.addNotificationBlock { [unowned self] (changed) in
-            switch changed {
-            case let .Update(_, deletions: deletions, insertions: insertions, modifications: modifications):
-                self.tableView.beginUpdates()
-                defer {
-                    self.tableView.endUpdates()
-                }
-                self.tableView.deleteRowsAtIndexPaths(deletions.map({ NSIndexPath(forRow: $0, inSection: 0) }), withRowAnimation: .Automatic)
-                self.tableView.insertRowsAtIndexPaths(insertions.map({ NSIndexPath(forRow: $0, inSection: 0) }), withRowAnimation: .Automatic)
-                self.tableView.reloadRowsAtIndexPaths(modifications.map({ NSIndexPath(forRow: $0, inSection: 0) }), withRowAnimation: .None)
-            case let .Error(error):
-                error.log("RuleSetListVC realm token update error")
-            default:
-                break
-            }
+        
+        tableView.addPullToRefreshWithActionHandler( { [weak self] in
+            self?.loadData()
+            })
+        if ruleSets.count == 0 {
+            tableView.triggerPullToRefresh()
         }
-    }
-
-    override func viewWillDisappear(animated: Bool) {
-        super.viewWillDisappear(animated)
-        token?.stop()
     }
 
     func reloadData() {
@@ -125,7 +134,7 @@ class RuleSetListViewController: UIViewController, UITableViewDataSource, UITabl
             }
             item = ruleSets[indexPath.row]
             do {
-                try DBUtils.softDelete(item.uuid, type: RuleSet.self)
+                try DBUtils.hardDelete(item.uuid, type: RuleSet.self)
             }catch {
                 self.showTextHUD("\("Fail to delete item".localized()): \((error as NSError).localizedDescription)", dismissAfterDelay: 1.5)
             }

@@ -16,7 +16,6 @@ class CollectionViewController: SegmentPageVC {
     let pageVCs = [
         RuleSetListViewController(),
         ProxyListViewController(),
-        CloudViewController(),
     ]
 
     override func pageViewControllersForSegmentPageVC() -> [UIViewController] {
@@ -24,7 +23,7 @@ class CollectionViewController: SegmentPageVC {
     }
 
     override func segmentsForSegmentPageVC() -> [String] {
-        return ["Rule Set".localized(), "Proxy".localized(), "Cloud Set".localized()]
+        return ["Rule Set".localized(), "Proxy".localized()]
     }
 
     override func showPage(index: Int) {
@@ -42,8 +41,26 @@ class CollectionViewController: SegmentPageVC {
             let vc = RuleSetConfigurationViewController(ruleSet: nil)
             navigationController?.pushViewController(vc, animated: true)
         case 1:
-            let vc = ProxyConfigurationViewController(upstreamProxy: nil)
-            navigationController?.pushViewController(vc, animated: true)
+            let alert = UIAlertController(title: "Add Proxy".localized(), message: nil, preferredStyle: .ActionSheet)
+            alert.addAction(UIAlertAction(title: "Import From QRCode".localized(), style: .Default, handler: { (action) in
+                let importer = Importer(vc: self)
+                importer.importConfigFromQRCode()
+            }))
+            alert.addAction(UIAlertAction(title: "Manual Settings".localized(), style: .Default, handler: { (action) in
+                let vc = ProxyConfigurationViewController()
+                self.navigationController?.pushViewController(vc, animated: true)
+            }))
+            alert.addAction(UIAlertAction(title: "CANCEL".localized(), style: .Cancel, handler: nil))
+            if let presenter = alert.popoverPresentationController {
+                if let rightBtn : View = navigationItem.rightBarButtonItem?.valueForKey("view") as? View {
+                    presenter.sourceView = rightBtn
+                    presenter.sourceRect = rightBtn.bounds
+                } else {
+                    presenter.sourceView = segmentedControl
+                    presenter.sourceRect = segmentedControl.bounds
+                }
+            }
+            self.presentViewController(alert, animated: true, completion: nil)
         default:
             break
         }

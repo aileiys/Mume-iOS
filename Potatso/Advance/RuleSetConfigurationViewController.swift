@@ -15,16 +15,15 @@ private let kRuleSetFormName = "name"
 
 class RuleSetConfigurationViewController: FormViewController {
 
-    var ruleSet: RuleSet
-    var rules: [Rule]
+    var ruleSet: PotatsoModel.RuleSet
     let isEdit: Bool
     var editable: Bool {
         return ruleSet.editable && !ruleSet.isSubscribe
     }
-    var callback: (RuleSet? -> Void)?
+    var callback: (PotatsoModel.RuleSet? -> Void)?
     var editSection: Section = Section()
 
-    init(ruleSet: RuleSet? = nil, callback: (RuleSet? -> Void)? = nil) {
+    init(ruleSet: PotatsoModel.RuleSet? = nil, callback: (PotatsoModel.RuleSet? -> Void)? = nil) {
         self.callback = callback
         if let ruleSet = ruleSet {
             self.ruleSet = RuleSet(value: ruleSet)
@@ -33,7 +32,6 @@ class RuleSetConfigurationViewController: FormViewController {
             self.ruleSet = RuleSet()
             self.isEdit = false
         }
-        self.rules = self.ruleSet.rules
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -80,7 +78,7 @@ class RuleSetConfigurationViewController: FormViewController {
                 self.showRuleConfiguration(nil)
             })
         }
-        for rule in rules {
+        for rule in ruleSet.rules {
             insertRule(rule, atIndex: editSection.count)
         }
         form +++ editSection
@@ -98,16 +96,20 @@ class RuleSetConfigurationViewController: FormViewController {
                 row.title = rule.rowDescription.0 == nil ? "" : "\(rule.rowDescription.0!)"
                 row.value = rule.rowDescription.1 == nil ? "" : "\(rule.rowDescription.1!)"
             }).onCellSelection({ [unowned self] (cell, row) -> () in
-                self.showRuleConfiguration(rule)
+                self.showRuleConfiguration(rule, index: index - 1)
             }),
             atIndex: index)
     }
     
-    func showRuleConfiguration(rule: Rule?) {
+    func showRuleConfiguration(rule: Rule?, index: Int = 0) {
         let vc = RuleConfigurationViewController(rule: rule) { result in
             if rule == nil {
                 self.insertRule(result, atIndex: self.form[1].count)
                 self.ruleSet.addRule(result)
+            } else {
+                var rules = self.ruleSet.rules
+                rules[index] = result
+                self.ruleSet.rules = rules
             }
         }
         vc.editable = editable
@@ -124,7 +126,7 @@ class RuleSetConfigurationViewController: FormViewController {
             try DBUtils.add(ruleSet)
             callback?(ruleSet)
             close()
-        }catch {
+        } catch {
             showTextHUD("\(error)", dismissAfterDelay: 1.0)
         }
     }

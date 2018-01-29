@@ -58,9 +58,9 @@ struct Importer {
     
     func importSS(source: String) {
         do {
-            let proxy = try Proxy(dictionary: ["uri": source], inRealm: defaultRealm)
+            let proxy = try Proxy(dictionary: ["uri": source])
             do {
-                try proxy.validate(inRealm: defaultRealm)
+                try proxy.validate()
                 try DBUtils.add(proxy)
                 self.onConfigSaveCallback(true, error: nil)
             } catch {
@@ -104,6 +104,9 @@ struct Importer {
                 }
             }else {
                 self.viewController?.showTextHUD("Import Success".localized(), dismissAfterDelay: 1.5)
+                let keyWindow = UIApplication.sharedApplication().keyWindow
+                let tabBarVC:UITabBarController = (keyWindow?.rootViewController) as! UITabBarController
+                tabBarVC.selectedIndex = 0
             }
         }
     }

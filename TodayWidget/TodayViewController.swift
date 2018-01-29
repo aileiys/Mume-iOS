@@ -17,7 +17,7 @@ import CocoaAsyncSocket
 
 private let kCurrentGroupCellIndentifier = "kCurrentGroupIndentifier"
 
-class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataSource, UITableViewDelegate, GCDAsyncSocketDelegate {
+class TodayViewController: UIViewController, NCWidgetProviding, GCDAsyncSocketDelegate {
     
     let constrainGroup = ConstraintGroup()
     
@@ -25,11 +25,14 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
     
     var timer: NSTimer?
     
+    var thresholdRetry = 0
+
     var rowCount: Int {
         return 1
     }
     
     var status: Bool = false
+    var statusExpected: Bool = false
 
     var socket: GCDAsyncSocket!
 
@@ -44,9 +47,7 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        let port = Potatso.sharedUserDefaults().integerForKey("tunnelStatusPort")
-        status = port > 0
-        tableView.registerClass(CurrentGroupCell.self, forCellReuseIdentifier: kCurrentGroupCellIndentifier)
+        
         view.addSubview(tableView)
         updateLayout()
     }
@@ -54,7 +55,7 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
     override func viewWillAppear(animated: Bool) {
         super.viewWillAppear(animated)
         startTimer()
-        tableView.reloadData()
+        self.reload()
     }
     
     override func viewWillDisappear(animated: Bool) {
@@ -66,13 +67,15 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
         let port = Potatso.sharedUserDefaults().integerForKey("tunnelStatusPort")
         guard port > 0 else {
             updateStatus(false)
+            openAppIfNeeded()
             return
         }
         do {
             socket.delegate = self
-            try socket.connectToHost("127.0.0.1", onPort: UInt16(port))
-        }catch {
+            try socket.connectToHost("127.0.0.1", onPort: UInt16(port), withTimeout: 0.9)
+        } catch {
             updateStatus(false)
+            openAppIfNeeded()
         }
     }
 
@@ -97,28 +100,50 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
 
     func socketDidDisconnect(sock: GCDAsyncSocket!, withError err: NSError!) {
         updateStatus(false)
+        openAppIfNeeded()
     }
 
     func updateStatus(current: Bool) {
         if status != current {
             status = current
             dispatch_async(dispatch_get_main_queue(), { 
-                self.tableView.reloadRowsAtIndexPaths([NSIndexPath(forRow: 0, inSection: 0)], withRowAnimation: .None)
+                self.reload()
             })
         }
     }
     
-    func switchVPN() {
-        if status {
-            wormhole.passMessageObject("", identifier: "stopTunnel")
-        }else {
-            NSURLSession.sharedSession().dataTaskWithURL(NSURL(string: "https://on-demand.connect.mume.vpn/start/")!).resume()
+    func openAppIfNeeded() {
+        if !statusExpected {
+            return
         }
+        if thresholdRetry > 3 {
+            thresholdRetry = 0
+            statusExpected = false
+            let url = NSURL(string: "mume://on")
+            self.extensionContext?.openURL(url!, completionHandler:nil)
+        }
+        thresholdRetry += 1
+    }
+    
+    func switchVPN(on: Bool) {
+        if !on {
+            wormhole.passMessageObject("", identifier: "stopTunnel")
+        } else {
+            // try on-demand first
+            let url = NSURL(string: "https://on-demand.connect.mume.vpn/start/")
+            let task = NSURLSession.sharedSession().dataTaskWithURL(url!) {data, reponse, error in
+                if (error != nil) {
+                    print(error.debugDescription)
+                }
+            }
+            task.resume()
+        }
+        statusExpected = on
     }
     
     func widgetMarginInsetsForProposedMarginInsets(defaultMarginInsets: UIEdgeInsets) -> UIEdgeInsets {
         var inset = defaultMarginInsets
-        inset.bottom = 0
+        inset.bottom = inset.top
         return inset
     }
 
@@ -132,53 +157,24 @@ class TodayViewController: UIViewController, NCWidgetProviding, UITableViewDataS
         completionHandler(NCUpdateResult.NewData)
     }
     
-    func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return rowCount
-    }
-    
-    func tableView(tableView: UITableView, cellForRowAtIndexPath indexPath: NSIndexPath) -> UITableViewCell {
-        var cell: UITableViewCell!
-        if indexPath.row == 0 {
-            cell = tableView.dequeueReusableCellWithIdentifier(kCurrentGroupCellIndentifier, forIndexPath: indexPath)
-            let name = Potatso.sharedUserDefaults().objectForKey(kDefaultGroupName) as? String
-            (cell as? CurrentGroupCell)?.config(name ?? "Default".localized(), status: status, switchVPN: switchVPN)
-        }
-        cell.preservesSuperviewLayoutMargins = false
-        cell.layoutMargins = UIEdgeInsetsZero
-        cell.separatorInset = UIEdgeInsetsZero
-        cell.selectionStyle = .None
-        if indexPath.row == rowCount - 1 {
-            cell.separatorInset = UIEdgeInsetsMake(0, cell.bounds.size.width, 0, 0)
-        }else {
-            cell.separatorInset = UIEdgeInsetsZero
-        }
-        
-        return cell
-    }
-    
-    func tableView(tableView: UITableView, heightForRowAtIndexPath indexPath: NSIndexPath) -> CGFloat {
-        return 60
-    }
-    
     func updateLayout() {
         constrain(tableView, view, replace: constrainGroup) { tableView, superView in
             tableView.leading == superView.leading
             tableView.top == superView.top
             tableView.trailing == superView.trailing
-            tableView.bottom == superView.bottom - 15
-            tableView.height == CGFloat(44 * rowCount)
+            tableView.bottom == superView.bottom
+            tableView.height == CGFloat(60 * rowCount)
         }
     }
     
-    lazy var tableView: UITableView = {
-        let v = UITableView(frame: CGRectZero, style: .Plain)
-        v.tableFooterView = UIView()
-        v.tableHeaderView = UIView()
-        v.dataSource = self
-        v.delegate = self
+    lazy var tableView: CurrentGroupCell = {
+        let v = CurrentGroupCell(frame: CGRectZero)
         return v
     }()
     
-    
+    func reload() {
+        let name = Potatso.sharedUserDefaults().objectForKey(kDefaultGroupName) as? String
+        tableView.config(name ?? "Default".localized(), status: status, switchVPN: switchVPN)
+    }
     
 }
